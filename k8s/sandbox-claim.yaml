@@ -1,0 +1,18 @@
+# =============================================================================
+# DEFAULT DEMO - Single Task Mode
+# =============================================================================
+# Runs one task and exits.
+# To change the task, edit AGENT_TASK in k8s/sandbox-template.yaml
+# (look for prodisco-agent-sandbox-vertex template)
+# =============================================================================
+
+apiVersion: extensions.agents.x-k8s.io/v1alpha1
+kind: SandboxClaim
+metadata:
+  name: prodisco-agent-demo
+  namespace: default
+  labels:
+    app: prodisco-agent-sandbox
+spec:
+  sandboxTemplateRef:
+    name: prodisco-agent-sandbox-vertex

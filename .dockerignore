@@ -1,0 +1,54 @@
+# Dependencies (will be installed in container)
+node_modules/
+
+# Build artifacts (will be built in container)
+dist/
+
+# Git
+.git/
+.gitignore
+.github/
+
+# Documentation
+*.md
+!README.md
+docs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Testing
+coverage/
+.nyc_output/
+test/
+tests/
+**/*.test.ts
+**/*.spec.ts
+
+# Environment files (secrets should never be in images)
+.env
+.env.*
+!.env.example
+
+# CI/CD
+.github/
+
+# Kubernetes manifests (not needed in image)
+k8s/
+manifests/
+*.yaml
+*.yml
+
+# Build artifacts
+*.tsbuildinfo

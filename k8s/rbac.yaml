@@ -1,0 +1,133 @@
+---
+# ServiceAccount for the agent pod
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prodisco-agent
+  namespace: default
+  labels:
+    app: prodisco-agent-sandbox
+  # =========================================================================
+  # WORKLOAD IDENTITY ANNOTATION (GKE Only)
+  # =========================================================================
+  # Uncomment the annotation below when using Google Vertex AI with
+  # GKE Workload Identity. This links the Kubernetes ServiceAccount to
+  # a GCP Service Account, enabling automatic credential injection.
+  #
+  # Prerequisites:
+  # 1. GKE cluster with Workload Identity enabled
+  # 2. GCP Service Account with roles/aiplatform.user
+  # 3. IAM binding between K8s SA and GCP SA:
+  #    gcloud iam service-accounts add-iam-policy-binding \
+  #      YOUR_GCP_SA@YOUR_PROJECT.iam.gserviceaccount.com \
+  #      --role=roles/iam.workloadIdentityUser \
+  #      --member="serviceAccount:YOUR_PROJECT.svc.id.goog[default/prodisco-agent]"
+  #
+  # annotations:
+  #   iam.gke.io/gcp-service-account: YOUR_GCP_SA@YOUR_PROJECT.iam.gserviceaccount.com
+  # =========================================================================
+
+---
+# Role with permissions for the MCP server to read/list Kubernetes resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: prodisco-agent-reader
+  namespace: default
+  labels:
+    app: prodisco-agent-sandbox
+rules:
+  # Read-only access to core resources
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/log
+      - pods/status
+      - services
+      - endpoints
+      - configmaps
+      - persistentvolumeclaims
+      - events
+    verbs: ["get", "list", "watch"]
+  
+  # Read-only access to apps resources
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - replicasets
+      - statefulsets
+      - daemonsets
+    verbs: ["get", "list", "watch"]
+  
+  # Read-only access to batch resources
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["get", "list", "watch"]
+  
+  # Read-only access to networking
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - ingresses
+      - networkpolicies
+    verbs: ["get", "list", "watch"]
+
+---
+# RoleBinding to grant the ServiceAccount the Role permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: prodisco-agent-reader-binding
+  namespace: default
+  labels:
+    app: prodisco-agent-sandbox
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: prodisco-agent-reader
+subjects:
+  - kind: ServiceAccount
+    name: prodisco-agent
+    namespace: default
+
+---
+# Optional: ClusterRole for read-only cluster-wide access
+# Uncomment if you need the agent to view cluster-level resources
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: ClusterRole
+# metadata:
+#   name: prodisco-agent-cluster-reader
+#   labels:
+#     app: prodisco-agent-sandbox
+# rules:
+#   - apiGroups: [""]
+#     resources:
+#       - nodes
+#       - namespaces
+#       - persistentvolumes
+#     verbs: ["get", "list", "watch"]
+#   
+#   - apiGroups: ["storage.k8s.io"]
+#     resources:
+#       - storageclasses
+#     verbs: ["get", "list", "watch"]
+
+---
+# Optional: ClusterRoleBinding for cluster-wide access
+# Uncomment if you need the agent to view cluster-level resources
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: ClusterRoleBinding
+# metadata:
+#   name: prodisco-agent-cluster-reader-binding
+#   labels:
+#     app: prodisco-agent-sandbox
+# roleRef:
+#   apiGroup: rbac.authorization.k8s.io
+#   kind: ClusterRole
+#   name: prodisco-agent-cluster-reader
+# subjects:
+#   - kind: ServiceAccount
+#     name: prodisco-agent
+#     namespace: default
+

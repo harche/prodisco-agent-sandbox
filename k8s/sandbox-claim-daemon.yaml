@@ -1,0 +1,19 @@
+# =============================================================================
+# DAEMON MODE DEMO
+# =============================================================================
+# Long-running agent with HTTP API for interactive use.
+# Accepts tasks via POST /execute endpoint.
+# =============================================================================
+
+apiVersion: extensions.agents.x-k8s.io/v1alpha1
+kind: SandboxClaim
+metadata:
+  name: prodisco-agent-daemon
+  namespace: default
+  labels:
+    app: prodisco-agent-sandbox
+    mode: daemon
+spec:
+  sandboxTemplateRef:
+    name: prodisco-agent-sandbox-vertex-daemon
+

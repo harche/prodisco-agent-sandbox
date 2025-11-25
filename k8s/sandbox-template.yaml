@@ -1,0 +1,639 @@
+---
+# =============================================================================
+# OPTION 1: ANTHROPIC API KEY AUTHENTICATION
+# =============================================================================
+# Use this template when authenticating with Anthropic API directly.
+# Requires: anthropic-api-key secret with api-key
+# =============================================================================
+
+# SandboxTemplate defines the template for creating agent sandbox instances
+apiVersion: extensions.agents.x-k8s.io/v1alpha1
+kind: SandboxTemplate
+metadata:
+  name: prodisco-agent-sandbox
+  namespace: default
+  labels:
+    app: prodisco-agent-sandbox
+    auth: anthropic-api
+    version: v0.1.0
+spec:
+  # Pod template for the sandbox
+  podTemplate:
+    metadata:
+      labels:
+        app: prodisco-agent-sandbox
+        component: agent-pod
+        auth: anthropic-api
+    spec:
+      # Use the dedicated ServiceAccount with RBAC permissions
+      serviceAccountName: prodisco-agent
+      
+      # Security context for the pod
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      
+      containers:
+        - name: agent
+          image: quay.io/harpatil/prodisco-agent-sandbox:latest
+          imagePullPolicy: Always
+          
+          # Security context for the container
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          
+          # Environment variables for agent configuration
+          env:
+            # Anthropic API configuration
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: anthropic-api-key
+                  key: api-key
+            
+            - name: ANTHROPIC_MODEL
+              value: "claude-sonnet-4-5-20250514"
+            
+            # Agent behavior
+            - name: AGENT_MODE
+              value: "single-task"
+            
+            - name: AGENT_TASK
+              value: "List all pods in the default namespace and provide a summary"
+            
+            - name: MAX_ITERATIONS
+              value: "10"
+            
+            # MCP server configuration
+            - name: MCP_COMMAND
+              value: "prodisco-k8s"
+            
+            # Kubernetes configuration
+            - name: K8S_NAMESPACE
+              value: "default"
+            
+            # Logging
+            - name: LOG_LEVEL
+              value: "info"
+            
+            - name: NODE_ENV
+              value: "production"
+          
+          # Resource limits and requests
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          
+          # Temporary writable directories (since rootfs is read-only)
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/.cache
+      
+      # Volumes for temporary storage
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+      
+      # Restart policy for task-based execution
+      restartPolicy: Never
+      
+      # Optional: Node selector for specific node pools
+      # nodeSelector:
+      #   workload-type: ai-agents
+      
+      # Optional: Tolerations for tainted nodes
+      # tolerations:
+      #   - key: "workload-type"
+      #     operator: "Equal"
+      #     value: "ai-agents"
+      #     effect: "NoSchedule"
+
+---
+# =============================================================================
+# DAEMON MODE: Long-running agent with HTTP API
+# =============================================================================
+# This template creates a daemon agent that exposes an HTTP API for receiving
+# tasks. This follows the official agent-sandbox pattern with:
+# - HTTP server on port 8888
+# - Health check endpoints (/healthz)
+# - Task execution endpoint (/execute, /task)
+#
+# Use with the Sandbox Router for scalable access to multiple agent sandboxes.
+# =============================================================================
+
+apiVersion: extensions.agents.x-k8s.io/v1alpha1
+kind: SandboxTemplate
+metadata:
+  name: prodisco-agent-sandbox-daemon
+  namespace: default
+  labels:
+    app: prodisco-agent-sandbox
+    mode: daemon
+    auth: anthropic-api
+    version: v0.1.0
+spec:
+  podTemplate:
+    metadata:
+      labels:
+        app: prodisco-agent-sandbox
+        mode: daemon
+        auth: anthropic-api
+    spec:
+      serviceAccountName: prodisco-agent
+      
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      
+      containers:
+        - name: agent
+          image: quay.io/harpatil/prodisco-agent-sandbox:latest
+          imagePullPolicy: Always
+          
+          # Expose HTTP server port for receiving tasks
+          ports:
+            - containerPort: 8888
+              name: http
+              protocol: TCP
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          
+          env:
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: anthropic-api-key
+                  key: api-key
+            
+            - name: ANTHROPIC_MODEL
+              value: "claude-sonnet-4-5-20250514"
+            
+            - name: AGENT_MODE
+              value: "daemon"
+            
+            # HTTP server configuration
+            - name: SERVER_PORT
+              value: "8888"
+            - name: SERVER_HOST
+              value: "0.0.0.0"
+            
+            - name: MAX_ITERATIONS
+              value: "20"
+            
+            - name: MCP_COMMAND
+              value: "prodisco-k8s"
+            
+            - name: K8S_NAMESPACE
+              value: "default"
+            
+            - name: LOG_LEVEL
+              value: "info"
+          
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/.cache
+          
+          # HTTP-based health probes (official agent-sandbox pattern)
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8888
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8888
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+      
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+      
+      # For daemon mode, use OnFailure instead of Never
+      restartPolicy: OnFailure
+
+---
+# =============================================================================
+# OPTION 2: GOOGLE VERTEX AI AUTHENTICATION
+# =============================================================================
+# Use this template when authenticating via Google Cloud Vertex AI.
+# This provides enterprise-grade security without managing API keys directly.
+#
+# Authentication Methods:
+# - GKE with Workload Identity (recommended for production)
+# - Service Account JSON key (for kind/minikube/non-GKE clusters)
+# - Application Default Credentials (for local development)
+#
+# Requires: gcp-credentials secret (for non-GKE) OR Workload Identity (for GKE)
+# =============================================================================
+
+apiVersion: extensions.agents.x-k8s.io/v1alpha1
+kind: SandboxTemplate
+metadata:
+  name: prodisco-agent-sandbox-vertex
+  namespace: default
+  labels:
+    app: prodisco-agent-sandbox
+    auth: vertex-ai
+    version: v0.1.0
+spec:
+  podTemplate:
+    metadata:
+      labels:
+        app: prodisco-agent-sandbox
+        component: agent-pod
+        auth: vertex-ai
+    spec:
+      serviceAccountName: prodisco-agent
+      
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      
+      containers:
+        - name: agent
+          image: quay.io/harpatil/prodisco-agent-sandbox:latest
+          imagePullPolicy: Always
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          
+          env:
+            # Google Vertex AI configuration
+            # Enable Vertex AI mode for Claude SDK
+            - name: CLAUDE_CODE_USE_VERTEX
+              value: "1"
+            
+            # Google Cloud region for Vertex AI
+            # Available regions: us-east5, europe-west1, asia-southeast1
+            - name: CLOUD_ML_REGION
+              value: "us-east5"
+            
+            # GCP project ID with Vertex AI Claude access
+            - name: ANTHROPIC_VERTEX_PROJECT_ID
+              value: "itpc-gcp-hybrid-pe-eng-claude"
+            
+            # Path to mounted GCP credentials (for non-GKE clusters)
+            # Comment this out when using Workload Identity on GKE
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: "/var/secrets/google/credentials.json"
+            
+            # Claude model via Vertex AI
+            # Note: Vertex AI model names differ from direct API
+            - name: ANTHROPIC_MODEL
+              value: "claude-sonnet-4-5@20250929"
+            
+            # Agent behavior
+            - name: AGENT_MODE
+              value: "single-task"
+            
+            - name: AGENT_TASK
+              value: "List all pods in the default namespace and provide a summary"
+            
+            - name: MAX_ITERATIONS
+              value: "10"
+            
+            # MCP server configuration
+            - name: MCP_COMMAND
+              value: "prodisco-k8s"
+            
+            # Kubernetes configuration
+            - name: K8S_NAMESPACE
+              value: "default"
+            
+            # Logging
+            - name: LOG_LEVEL
+              value: "info"
+            
+            - name: NODE_ENV
+              value: "production"
+          
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/.cache
+            # Mount GCP credentials (for non-GKE clusters)
+            # Comment this out when using Workload Identity on GKE
+            - name: gcp-credentials
+              mountPath: /var/secrets/google
+              readOnly: true
+      
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+        # GCP credentials volume (for non-GKE clusters)
+        # Comment this out when using Workload Identity on GKE
+        - name: gcp-credentials
+          secret:
+            secretName: gcp-credentials
+            items:
+              - key: credentials.json
+                path: credentials.json
+      
+      restartPolicy: Never
+
+---
+# Vertex AI daemon mode template with HTTP API
+apiVersion: extensions.agents.x-k8s.io/v1alpha1
+kind: SandboxTemplate
+metadata:
+  name: prodisco-agent-sandbox-vertex-daemon
+  namespace: default
+  labels:
+    app: prodisco-agent-sandbox
+    mode: daemon
+    auth: vertex-ai
+    version: v0.1.0
+spec:
+  podTemplate:
+    metadata:
+      labels:
+        app: prodisco-agent-sandbox
+        mode: daemon
+        auth: vertex-ai
+    spec:
+      serviceAccountName: prodisco-agent
+      
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      
+      containers:
+        - name: agent
+          image: quay.io/harpatil/prodisco-agent-sandbox:latest
+          imagePullPolicy: Always
+          
+          # Expose HTTP server port for receiving tasks
+          ports:
+            - containerPort: 8888
+              name: http
+              protocol: TCP
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          
+          env:
+            # Google Vertex AI configuration
+            - name: CLAUDE_CODE_USE_VERTEX
+              value: "1"
+            - name: CLOUD_ML_REGION
+              value: "us-east5"
+            - name: ANTHROPIC_VERTEX_PROJECT_ID
+              value: "itpc-gcp-hybrid-pe-eng-claude"
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: "/var/secrets/google/credentials.json"
+            
+            - name: ANTHROPIC_MODEL
+              value: "claude-sonnet-4-5@20250929"
+            
+            - name: AGENT_MODE
+              value: "daemon"
+            
+            # HTTP server configuration
+            - name: SERVER_PORT
+              value: "8888"
+            - name: SERVER_HOST
+              value: "0.0.0.0"
+            
+            - name: MAX_ITERATIONS
+              value: "20"
+            
+            - name: MCP_COMMAND
+              value: "prodisco-k8s"
+            
+            - name: K8S_NAMESPACE
+              value: "default"
+            
+            - name: LOG_LEVEL
+              value: "info"
+          
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/.cache
+            - name: gcp-credentials
+              mountPath: /var/secrets/google
+              readOnly: true
+          
+          # HTTP-based health probes (official agent-sandbox pattern)
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8888
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8888
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+      
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+        - name: gcp-credentials
+          secret:
+            secretName: gcp-credentials
+            items:
+              - key: credentials.json
+                path: credentials.json
+      
+      restartPolicy: OnFailure
+
+---
+# =============================================================================
+# OPTION 3: GKE WITH WORKLOAD IDENTITY (Production Recommended)
+# =============================================================================
+# Use this template on GKE clusters with Workload Identity enabled.
+# No secrets needed - authentication is automatic via metadata server.
+#
+# Prerequisites:
+# 1. GKE cluster with Workload Identity enabled
+# 2. GCP Service Account with roles/aiplatform.user
+# 3. IAM binding between K8s SA and GCP SA
+#
+# See k8s/README.md for setup instructions.
+# =============================================================================
+
+apiVersion: extensions.agents.x-k8s.io/v1alpha1
+kind: SandboxTemplate
+metadata:
+  name: prodisco-agent-sandbox-gke-workload-identity
+  namespace: default
+  labels:
+    app: prodisco-agent-sandbox
+    auth: workload-identity
+    version: v0.1.0
+spec:
+  podTemplate:
+    metadata:
+      labels:
+        app: prodisco-agent-sandbox
+        component: agent-pod
+        auth: workload-identity
+    spec:
+      # ServiceAccount must have Workload Identity annotation
+      # See k8s/rbac.yaml for the annotated ServiceAccount
+      serviceAccountName: prodisco-agent
+      
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      
+      containers:
+        - name: agent
+          image: quay.io/harpatil/prodisco-agent-sandbox:latest
+          imagePullPolicy: Always
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          
+          env:
+            # Google Vertex AI configuration
+            - name: CLAUDE_CODE_USE_VERTEX
+              value: "1"
+            - name: CLOUD_ML_REGION
+              value: "us-east5"
+            - name: ANTHROPIC_VERTEX_PROJECT_ID
+              value: "itpc-gcp-hybrid-pe-eng-claude"
+            # NOTE: GOOGLE_APPLICATION_CREDENTIALS is NOT needed with Workload Identity
+            # GKE automatically provides credentials via the metadata server
+            
+            - name: ANTHROPIC_MODEL
+              value: "claude-sonnet-4-5@20250929"
+            
+            - name: AGENT_MODE
+              value: "single-task"
+            
+            - name: AGENT_TASK
+              value: "List all pods in the default namespace and provide a summary"
+            
+            - name: MAX_ITERATIONS
+              value: "10"
+            
+            - name: MCP_COMMAND
+              value: "prodisco-k8s"
+            
+            - name: K8S_NAMESPACE
+              value: "default"
+            
+            - name: LOG_LEVEL
+              value: "info"
+            
+            - name: NODE_ENV
+              value: "production"
+          
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/.cache
+            # No gcp-credentials volume needed with Workload Identity!
+      
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+      
+      restartPolicy: Never
+
