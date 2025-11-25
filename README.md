@@ -8,8 +8,40 @@ AI agent runtime packaging [@prodisco/k8s-mcp](https://www.npmjs.com/package/@pr
 - **kubectl** configured for your cluster
 - **agent-sandbox** CRDs installed
 - **Authentication** (choose one):
-  - Google Cloud project with Vertex AI Claude access (recommended), OR
-  - Anthropic API key ([get one here](https://console.anthropic.com/))
+  <details>
+  <summary>Anthropic API Key (Simple)</summary>
+
+  ```bash
+  kubectl create secret generic anthropic-api-key \
+    --from-literal=api-key=sk-ant-YOUR_KEY_HERE
+  ```
+  </details>
+
+  <details>
+  <summary>Google Vertex AI (Recommended)</summary>
+
+  **For GKE with Workload Identity (Production):**
+  ```bash
+  gcloud iam service-accounts create prodisco-agent \
+    --project=YOUR_GCP_PROJECT
+
+  gcloud projects add-iam-policy-binding YOUR_GCP_PROJECT \
+    --member="serviceAccount:prodisco-agent@YOUR_GCP_PROJECT.iam.gserviceaccount.com" \
+    --role="roles/aiplatform.user"
+
+  gcloud iam service-accounts add-iam-policy-binding \
+    prodisco-agent@YOUR_GCP_PROJECT.iam.gserviceaccount.com \
+    --role=roles/iam.workloadIdentityUser \
+    --member="serviceAccount:YOUR_GCP_PROJECT.svc.id.goog[default/prodisco-agent]"
+  ```
+
+  **For kind/minikube (Development):**
+  ```bash
+  gcloud auth application-default login
+  kubectl create secret generic gcp-credentials \
+    --from-file=credentials.json=$HOME/.config/gcloud/application_default_credentials.json
+  ```
+  </details>
 
 ## Quick Start
 
@@ -158,45 +190,6 @@ The agent will:
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-5@20250929` | Claude model (Vertex AI format) |
 
 > **Note**: Vertex AI model names use a different format than direct API (e.g., `claude-sonnet-4-5@20250929` vs `claude-sonnet-4-5-20250514`)
-
-### Authentication Options
-
-<details>
-<summary><b>Anthropic API Key (Simple)</b></summary>
-
-```bash
-kubectl create secret generic anthropic-api-key \
-  --from-literal=api-key=sk-ant-YOUR_KEY_HERE
-```
-
-</details>
-
-<details>
-<summary><b>Google Vertex AI (Enterprise)</b></summary>
-
-**For GKE with Workload Identity (Production):**
-```bash
-gcloud iam service-accounts create prodisco-agent \
-  --project=YOUR_GCP_PROJECT
-
-gcloud projects add-iam-policy-binding YOUR_GCP_PROJECT \
-  --member="serviceAccount:prodisco-agent@YOUR_GCP_PROJECT.iam.gserviceaccount.com" \
-  --role="roles/aiplatform.user"
-
-gcloud iam service-accounts add-iam-policy-binding \
-  prodisco-agent@YOUR_GCP_PROJECT.iam.gserviceaccount.com \
-  --role=roles/iam.workloadIdentityUser \
-  --member="serviceAccount:YOUR_GCP_PROJECT.svc.id.goog[default/prodisco-agent]"
-```
-
-**For kind/minikube (Development):**
-```bash
-gcloud auth application-default login
-kubectl create secret generic gcp-credentials \
-  --from-file=credentials.json=$HOME/.config/gcloud/application_default_credentials.json
-```
-
-</details>
 
 ## License
 
