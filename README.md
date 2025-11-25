@@ -1,6 +1,6 @@
 # ProDisco Agent Sandbox
 
-AI agent runtime packaging [@prodisco/k8s-mcp](https://www.npmjs.com/package/@prodisco/k8s-mcp) for [agent-sandbox](https://agent-sandbox.sigs.k8s.io/) deployment on Kubernetes.
+AI agent runtime packaging [ProDisco](https://github.com/harche/ProDisco) for [agent-sandbox](https://agent-sandbox.sigs.k8s.io/) deployment on Kubernetes.
 
 ## Prerequisites
 
